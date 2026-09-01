@@ -5,3 +5,4 @@ if you open it i think itll work, theres a sidebar with things! pretty self expl
 
 enjoy!
 -Harmony
+<img width="597" height="198" alt="demo" src="https://github.com/user-attachments/assets/e043f676-4dff-436e-af42-bad93a448c81" />
