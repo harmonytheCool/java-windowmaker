@@ -1,1974 +1,894 @@
+import javax.imageio.ImageIO;
+import javax.sound.sampled.*;
 import javax.swing.*;
-import javax.swing.plaf.basic.BasicScrollBarUI;
+import javax.swing.border.Border;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.io.File;
-import javax.imageio.ImageIO;
 import java.util.Random;
-import javax.sound.sampled.*;
 
 public class HarmonysWindowmaker extends JFrame {
 
-    private final Random random = new Random();
-    private final int safeDistance = 150;
+    private final Random rand = new Random();
+    private final int safeDist = 150;
 
-    private int currentX, currentY;
-    private int targetX, targetY;
-    private static final int GLIDE_SPEED = 6;
+    private int curX, curY, targetX, targetY;
+    private static final int SPEED = 6;
 
-    private String currentAudioPath = "";
-    private boolean isSoundPlaying = false;
+    private String audioPath = "";
+    private String fontFam = "MS Sans Serif";
+    private int fontSize = 11;
 
-    private String fontFam = "Arial";
-    private int baseFontSize = 12;
-
-    private Color bgColor = new Color(0, 0, 0);
+    private Color bgColor = new Color(192, 192, 192);
     private Color titleColor = Color.WHITE;
-    private Color bodyColor = new Color(200, 200, 200);
+    private Color bodyColor = Color.BLACK;
 
-    private Image backgroundImage = null;
+    private Image bgImg = null;
 
-    private final int windowWidth = 600;
-    private final int windowHeight = 200;
-    private final int sidebarExpandedWidth = 180;
+    private final int winW = 500, winH = 190;
+    private final int expW = 1000, expH = 630;
 
     private JLayeredPane layeredPane;
-    private JPanel windowContentPanel;
+    private JPanel mainPane, boardPane, contentPaneContainer;
 
-    private JPanel sidebarPanel;
-    private JPanel sidebarContents;
-    private JScrollPane sidebarScrollPane;
+    private JLabel iconLbl, titleLbl, descLbl;
+    private JButton okBtn;
 
-    private JLabel iconLabel, titleLabel, descLabel;
-    private JButton okButton;
-
-    private boolean sidebarOpen = false;
-    private boolean buttonVisible = true;
-
+    private boolean btnVisible = true;
+    private boolean bitMode = false;
     private boolean dvdMode = false;
+    private boolean runaway = true;
+    private boolean stopped = false;
+    private volatile boolean dragging = false;
 
-    // Whether the window runs away from the mouse.
-    private boolean runawayEnabled = true;
-
-    // Emergency stop.
-    private boolean everythingStopped = false;
-
-    // Window dragging.
-    private Point dragStart = null;
-
-    private int dvdVelocityX = 5;
-    private int dvdVelocityY = 5;
+    private int vx = 5, vy = 5;
 
     private Clip bgmClip;
+    private Timer timer;
 
-    // Timer is a field so STOP EVERYTHING can stop it.
-    private Timer mainLoopTimer;
+    private JButton[] btns = new JButton[12];
+    private String[] sounds = new String[12];
+
+    private toolbarcoolbarWindow toolbarcoolbarWindow;
+    private CustomTitleBar titleBar;
+    private ResizeGrip mainResizeGrip;
 
     public HarmonysWindowmaker() {
-
         setUndecorated(true);
-        setSize(windowWidth, windowHeight);
+        setSize(winW, winH);
         setLocationRelativeTo(null);
-        setAlwaysOnTop(true);
+        setAlwaysOnTop(false);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-        Point initialPos = getLocation();
-
-        currentX = initialPos.x;
-        currentY = initialPos.y;
-        targetX = currentX;
-        targetY = currentY;
+        Point p = getLocation();
+        curX = targetX = p.x;
+        curY = targetY = p.y;
 
         layeredPane = new JLayeredPane();
-        layeredPane.setPreferredSize(
-            new Dimension(
-                windowWidth,
-                windowHeight
-            )
-        );
+        layeredPane.setLayout(null);
 
-        windowContentPanel =
-            new JPanel(new GridBagLayout()) {
+        contentPaneContainer = new JPanel(new BorderLayout());
+        contentPaneContainer.setBounds(0, 0, winW, winH);
+        contentPaneContainer.setBorder(BorderFactory.createLineBorder(new Color(128, 128, 128), 1));
 
-                @Override
-                protected void paintComponent(
-                    Graphics g
-                ) {
+        titleBar = new CustomTitleBar("DEVICE_ERROR.EXE", this, true);
+        contentPaneContainer.add(titleBar, BorderLayout.NORTH);
 
-                    super.paintComponent(g);
+        JPanel innerContainer = new JPanel(null);
+        innerContainer.setBackground(bgColor);
 
-                    if (backgroundImage != null) {
-
-                        g.drawImage(
-                            backgroundImage,
-                            0,
-                            0,
-                            getWidth(),
-                            getHeight(),
-                            this
-                        );
-                    }
+        mainPane = new JPanel(new GridBagLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                if (bgImg != null) {
+                    g.drawImage(bgImg, 0, 0, getWidth(), getHeight(), this);
                 }
-            };
+            }
+        };
 
-        windowContentPanel.setBounds(
-            15,
-            0,
-            windowWidth - 15,
-            windowHeight
-        );
-
-        windowContentPanel.setBorder(
-            BorderFactory.createEmptyBorder(
-                20,
-                25,
-                20,
-                25
+        mainPane.setBounds(0, 0, winW, winH - 26);
+        mainPane.setBackground(bgColor);
+        mainPane.setBorder(
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.RAISED, Color.WHITE, new Color(128, 128, 128)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
             )
         );
 
-        GridBagConstraints gbc =
-            new GridBagConstraints();
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.insets = new Insets(0, 5, 0, 5);
 
-        gbc.fill =
-            GridBagConstraints.BOTH;
-
-        gbc.insets =
-            new Insets(
-                0,
-                10,
-                0,
-                10
-            );
-
-        iconLabel =
-            new JLabel(
-                UIManager.getIcon(
-                    "OptionPane.warningIcon"
-                )
-            );
-
+        iconLbl = new JLabel(UIManager.getIcon("OptionPane.warningIcon"));
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridheight = 2;
-        gbc.weightx = 0.0;
+        mainPane.add(iconLbl, gbc);
 
-        windowContentPanel.add(
-            iconLabel,
-            gbc
-        );
+        JPanel txtPanel = new JPanel(new GridLayout(2, 1, 0, 5));
+        txtPanel.setOpaque(false);
 
-        JPanel textPanel =
-            new JPanel(
-                new GridLayout(
-                    2,
-                    1,
-                    0,
-                    5
-                )
-            );
+        titleLbl = new JLabel("DEVICE_ERROR") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+                g2.setColor(Color.BLACK);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(), 0, fm.getAscent());
+                g2.dispose();
+            }
+        };
 
-        textPanel.setOpaque(false);
+        descLbl = new JLabel("<html>CHOOSE YOUR TEXT WITH THE COOLBAR</html>") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+                g2.setColor(Color.BLACK);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText().replaceAll("<[^>]*>", ""), 0, fm.getAscent());
+                g2.dispose();
+            }
+        };
 
-        titleLabel =
-            new JLabel(
-                "DEVICE_ERROR"
-            );
-
-        descLabel =
-            new JLabel(
-                "<html>CHOOSE YOUR TEXT WITH THE SIDEBAR</html>"
-            );
-
-        textPanel.add(titleLabel);
-        textPanel.add(descLabel);
+        txtPanel.add(titleLbl);
+        txtPanel.add(descLbl);
 
         gbc.gridx = 1;
         gbc.gridy = 0;
         gbc.gridheight = 2;
         gbc.weightx = 1.0;
+        mainPane.add(txtPanel, gbc);
 
-        windowContentPanel.add(
-            textPanel,
-            gbc
-        );
+        okBtn = new JButton("OK") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(new Color(192, 192, 192));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                
+                g2.setColor(Color.WHITE);
+                g2.drawLine(0, 0, getWidth() - 1, 0);
+                g2.drawLine(0, 0, 0, getHeight() - 1);
+                
+                g2.setColor(new Color(128, 128, 128));
+                g2.drawLine(1, getHeight() - 1, getWidth() - 1, getHeight() - 1);
+                g2.drawLine(getWidth() - 1, 1, getWidth() - 1, getHeight() - 1);
+                
+                g2.setColor(Color.BLACK);
+                g2.drawLine(0, getHeight() - 1, getWidth() - 1, getHeight() - 1);
+                g2.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
 
-        okButton =
-            new JButton(
-                "PROCEED"
-            );
+                super.paintComponent(g2);
+                g2.dispose();
+            }
+        };
 
-        okButton.setFocusable(false);
-        okButton.setEnabled(false);
+        okBtn.setFocusable(false);
+        okBtn.setEnabled(false);
+        okBtn.setForeground(Color.BLACK);
+        okBtn.setContentAreaFilled(false);
+        okBtn.setBorderPainted(false);
 
-        JPanel buttonPanel =
-            new JPanel(
-                new FlowLayout(
-                    FlowLayout.RIGHT
-                )
-            );
-
-        buttonPanel.setOpaque(false);
-        buttonPanel.add(okButton);
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        btnPanel.setOpaque(false);
+        btnPanel.add(okBtn);
 
         gbc.gridx = 1;
         gbc.gridy = 2;
         gbc.gridheight = 1;
-        gbc.weightx = 1.0;
         gbc.weighty = 0.0;
+        mainPane.add(btnPanel, gbc);
 
-        windowContentPanel.add(
-            buttonPanel,
-            gbc
+        boardPane = new JPanel(new GridLayout(3, 4, 5, 5));
+        boardPane.setOpaque(true);
+        boardPane.setBackground(new Color(192, 192, 192));
+        boardPane.setBorder(
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.RAISED, Color.WHITE, new Color(128, 128, 128)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+            )
         );
+        boardPane.setVisible(false);
 
-        /*
-         * WINDOW DRAGGING
-         *
-         * The window is undecorated, so this gives the main
-         * content area normal click-and-drag behavior.
-         *
-         * Buttons are deliberately excluded so they remain
-         * clickable normally.
-         */
-        MouseAdapter windowDrag =
-            new MouseAdapter() {
-
+        for (int i = 0; i < 12; i++) {
+            final int idx = i;
+            JButton b = new JButton("Slot " + (i + 1)) {
                 @Override
-                public void mousePressed(
-                    MouseEvent e
-                ) {
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setColor(new Color(192, 192, 192));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
 
-                    if (
-                        everythingStopped ||
-                        dvdMode
-                    ) {
-                        return;
-                    }
+                    g2.setColor(Color.WHITE);
+                    g2.drawLine(0, 0, getWidth() - 1, 0);
+                    g2.drawLine(0, 0, 0, getHeight() - 1);
 
-                    dragStart =
-                        e.getPoint();
-                }
+                    g2.setColor(new Color(128, 128, 128));
+                    g2.drawLine(1, getHeight() - 2, getWidth() - 2, getHeight() - 2);
+                    g2.drawLine(getWidth() - 2, 1, getWidth() - 2, getHeight() - 2);
 
-                @Override
-                public void mouseDragged(
-                    MouseEvent e
-                ) {
+                    g2.setColor(Color.BLACK);
+                    g2.drawLine(0, getHeight() - 1, getWidth() - 1, getHeight() - 1);
+                    g2.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
 
-                    if (
-                        everythingStopped ||
-                        dvdMode ||
-                        dragStart == null
-                    ) {
-                        return;
-                    }
-
-                    Point location =
-                        getLocation();
-
-                    int newX =
-                        location.x +
-                        e.getX() -
-                        dragStart.x;
-
-                    int newY =
-                        location.y +
-                        e.getY() -
-                        dragStart.y;
-
-                    setLocation(
-                        newX,
-                        newY
-                    );
-
-                    currentX = newX;
-                    currentY = newY;
-
-                    targetX = newX;
-                    targetY = newY;
-                }
-
-                @Override
-                public void mouseReleased(
-                    MouseEvent e
-                ) {
-
-                    dragStart = null;
+                    super.paintComponent(g2);
+                    g2.dispose();
                 }
             };
 
-        installDragListeners(
-            windowContentPanel,
-            windowDrag
-        );
+            b.setFocusable(false);
+            b.setOpaque(false);
+            b.setContentAreaFilled(false);
+            b.setBorderPainted(false);
+            b.setBackground(new Color(192, 192, 192));
+            b.setForeground(Color.BLACK);
+            b.setFont(new Font("MS Sans Serif", Font.PLAIN, 11));
 
-        sidebarPanel =
-            new JPanel(
-                new BorderLayout()
-            );
-
-        sidebarPanel.setBackground(
-            new Color(
-                20,
-                20,
-                20
-            )
-        );
-
-        sidebarPanel.setBorder(
-            BorderFactory.createMatteBorder(
-                0,
-                0,
-                0,
-                2,
-                Color.DARK_GRAY
-            )
-        );
-
-        sidebarPanel.setBounds(
-            0,
-            0,
-            15,
-            windowHeight
-        );
-
-        sidebarContents =
-            new JPanel();
-
-        sidebarContents.setLayout(
-            new BoxLayout(
-                sidebarContents,
-                BoxLayout.Y_AXIS
-            )
-        );
-
-        sidebarContents.setBackground(
-            new Color(
-                20,
-                20,
-                20
-            )
-        );
-
-        sidebarScrollPane =
-            new JScrollPane(
-                sidebarContents
-            );
-
-        sidebarScrollPane.setBorder(null);
-
-        sidebarScrollPane.setHorizontalScrollBarPolicy(
-            JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-        );
-
-        sidebarScrollPane.setVerticalScrollBarPolicy(
-            JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-        );
-
-        sidebarScrollPane
-            .getViewport()
-            .setBackground(
-                new Color(
-                    20,
-                    20,
-                    20
-                )
-            );
-
-        sidebarScrollPane.setOpaque(false);
-
-        sidebarScrollPane
-            .getVerticalScrollBar()
-            .setUnitIncrement(12);
-
-        sidebarScrollPane
-            .getVerticalScrollBar()
-            .setUI(
-                new BasicScrollBarUI() {
-
-                    private final Color TRACK =
-                        new Color(
-                            20,
-                            20,
-                            20
-                        );
-
-                    private final Color THUMB =
-                        new Color(
-                            90,
-                            90,
-                            90
-                        );
-
-                    private final Color THUMB_HOVER =
-                        new Color(
-                            140,
-                            140,
-                            140
-                        );
-
-                    @Override
-                    protected void configureScrollBarColors() {
-
-                        thumbColor =
-                            THUMB;
-
-                        trackColor =
-                            TRACK;
-                    }
-
-                    @Override
-                    protected JButton createDecreaseButton(
-                        int orientation
-                    ) {
-
-                        return createInvisibleButton();
-                    }
-
-                    @Override
-                    protected JButton createIncreaseButton(
-                        int orientation
-                    ) {
-
-                        return createInvisibleButton();
-                    }
-
-                    private JButton createInvisibleButton() {
-
-                        JButton button =
-                            new JButton();
-
-                        button.setPreferredSize(
-                            new Dimension(
-                                0,
-                                0
-                            )
-                        );
-
-                        button.setMinimumSize(
-                            new Dimension(
-                                0,
-                                0
-                            )
-                        );
-
-                        button.setMaximumSize(
-                            new Dimension(
-                                0,
-                                0
-                            )
-                        );
-
-                        button.setOpaque(false);
-                        button.setContentAreaFilled(false);
-                        button.setBorderPainted(false);
-
-                        return button;
-                    }
-
-                    @Override
-                    protected void paintTrack(
-                        Graphics g,
-                        JComponent c,
-                        Rectangle trackBounds
-                    ) {
-
-                        Graphics2D g2 =
-                            (Graphics2D)
-                                g.create();
-
-                        g2.setColor(
-                            TRACK
-                        );
-
-                        g2.fillRect(
-                            trackBounds.x,
-                            trackBounds.y,
-                            trackBounds.width,
-                            trackBounds.height
-                        );
-
-                        g2.dispose();
-                    }
-
-                    @Override
-                    protected void paintThumb(
-                        Graphics g,
-                        JComponent c,
-                        Rectangle thumbBounds
-                    ) {
-
-                        if (
-                            thumbBounds.isEmpty() ||
-                            !scrollbar.isEnabled()
-                        ) {
-                            return;
-                        }
-
-                        Graphics2D g2 =
-                            (Graphics2D)
-                                g.create();
-
-                        g2.setRenderingHint(
-                            RenderingHints.KEY_ANTIALIASING,
-                            RenderingHints.VALUE_ANTIALIAS_ON
-                        );
-
-                        Color color =
-                            isThumbRollover()
-                                ? THUMB_HOVER
-                                : THUMB;
-
-                        g2.setColor(
-                            color
-                        );
-
-                        int x =
-                            thumbBounds.x + 2;
-
-                        int y =
-                            thumbBounds.y + 1;
-
-                        int width =
-                            Math.max(
-                                1,
-                                thumbBounds.width - 4
-                            );
-
-                        int height =
-                            Math.max(
-                                1,
-                                thumbBounds.height - 2
-                            );
-
-                        g2.fillRect(
-                            x,
-                            y,
-                            width,
-                            height
-                        );
-
-                        g2.dispose();
-                    }
-
-                    @Override
-                    protected void setThumbBounds(
-                        int x,
-                        int y,
-                        int width,
-                        int height
-                    ) {
-
-                        super.setThumbBounds(
-                            x,
-                            y,
-                            width,
-                            height
-                        );
-
-                        scrollbar.repaint();
-                    }
-                }
-            );
-
-        sidebarScrollPane
-            .getVerticalScrollBar()
-            .setPreferredSize(
-                new Dimension(
-                    10,
-                    0
-                )
-            );
-
-        sidebarPanel.add(
-            sidebarScrollPane,
-            BorderLayout.CENTER
-        );
-
-        setupSidebarButtons();
-
-        MouseAdapter sidebarHoverEngine =
-            new MouseAdapter() {
-
+            b.addMouseListener(new MouseAdapter() {
                 @Override
-                public void mouseEntered(
-                    MouseEvent e
-                ) {
-
-                    if (!sidebarOpen) {
-
-                        sidebarOpen = true;
-
-                        layeredPane.setLayer(
-                            sidebarPanel,
-                            JLayeredPane.DRAG_LAYER
-                        );
-
-                        sidebarPanel.setBounds(
-                            0,
-                            0,
-                            sidebarExpandedWidth,
-                            windowHeight
-                        );
-
-                        windowContentPanel.setBounds(
-                            sidebarExpandedWidth,
-                            0,
-                            windowWidth -
-                                sidebarExpandedWidth,
-                            windowHeight
-                        );
-
-                        toggleSidebarComponentsVisibility(
-                            true
-                        );
-
-                        refreshPanels();
+                public void mouseClicked(MouseEvent e) {
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        showMenu(e, idx);
+                    } else if (SwingUtilities.isLeftMouseButton(e)) {
+                        play(sounds[idx]);
                     }
                 }
+            });
 
-                @Override
-                public void mouseExited(
-                    MouseEvent e
-                ) {
+            btns[i] = b;
+            boardPane.add(b);
+        }
 
-                    if (
-                        sidebarOpen &&
-                        !sidebarPanel
-                            .getBounds()
-                            .contains(e.getPoint())
-                    ) {
+        innerContainer.add(mainPane);
+        innerContainer.add(boardPane);
+        contentPaneContainer.add(innerContainer, BorderLayout.CENTER);
 
-                        sidebarOpen = false;
+        mainResizeGrip = new ResizeGrip(this, 200, 100);
+        layeredPane.add(mainResizeGrip, JLayeredPane.PALETTE_LAYER);
 
-                        layeredPane.setLayer(
-                            sidebarPanel,
-                            JLayeredPane.PALETTE_LAYER
-                        );
+        layeredPane.add(contentPaneContainer);
+        contentPaneContainer.setBounds(0, 0, winW, winH);
+        mainResizeGrip.setBounds(winW - 16, winH - 16, 16, 16);
 
-                        sidebarPanel.setBounds(
-                            0,
-                            0,
-                            15,
-                            windowHeight
-                        );
+        setContentPane(layeredPane);
 
-                        windowContentPanel.setBounds(
-                            15,
-                            0,
-                            windowWidth - 15,
-                            windowHeight
-                        );
-
-                        toggleSidebarComponentsVisibility(
-                            false
-                        );
-
-                        refreshPanels();
-                    }
-                }
-            };
-
-        sidebarPanel.addMouseListener(
-            sidebarHoverEngine
-        );
-
-        layeredPane.add(
-            windowContentPanel,
-            JLayeredPane.DEFAULT_LAYER
-        );
-
-        layeredPane.add(
-            sidebarPanel,
-            JLayeredPane.PALETTE_LAYER
-        );
-
-        setContentPane(
-            layeredPane
-        );
-
-   
-        getRootPane()
-            .getInputMap(
-                JComponent.WHEN_IN_FOCUSED_WINDOW
-            )
-            .put(
-                KeyStroke.getKeyStroke(
-                    "ctrl I"
-                ),
-                "stopDVD"
-            );
-
-        getRootPane()
-            .getActionMap()
-            .put(
-                "stopDVD",
-                new AbstractAction() {
-
-                    @Override
-                    public void actionPerformed(
-                        java.awt.event.ActionEvent e
-                    ) {
-
-                        stopDVDMode();
-                    }
-                }
-            );
-
-        applyStyles();
-
+        applyTheme();
         setVisible(true);
 
-      
-        mainLoopTimer =
-            new Timer(
-                16,
-                e -> {
+        toolbarcoolbarWindow = new toolbarcoolbarWindow();
+        toolbarcoolbarWindow.setVisible(true);
+        toolbarcoolbarWindow.toFront();
 
-                    if (
-                        everythingStopped
-                    ) {
-                        return;
-                    }
+        timer = new Timer(16, e -> {
+            if (stopped || dragging) return;
 
-                    if (dvdMode) {
+            if (dvdMode) {
+                Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
+                int actualW = getWidth();
+                int actualH = getHeight();
 
-                        Dimension screenSize =
-                            Toolkit
-                                .getDefaultToolkit()
-                                .getScreenSize();
+                curX += vx;
+                curY += vy;
 
-                        currentX +=
-                            dvdVelocityX;
+                if (curX <= 0 || curX + actualW >= scr.width) {
+                    vx = -vx;
+                    curX = Math.max(0, Math.min(curX, scr.width - actualW));
+                }
 
-                        currentY +=
-                            dvdVelocityY;
+                if (curY <= 0 || curY + actualH >= scr.height) {
+                    vy = -vy;
+                    curY = Math.max(0, Math.min(curY, scr.height - actualH));
+                }
 
-                        if (
-                            currentX <= 0 ||
-                            currentX + windowWidth >=
-                                screenSize.width
-                        ) {
+                setLocation(curX, curY);
+            } else {
+                int dx = targetX - curX;
+                int dy = targetY - curY;
 
-                            dvdVelocityX =
-                                -dvdVelocityX;
-                        }
+                if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+                    curX += dx / SPEED;
+                    curY += dy / SPEED;
+                    setLocation(curX, curY);
+                }
+            }
+        });
 
-                        if (
-                            currentY <= 0 ||
-                            currentY + windowHeight >=
-                                screenSize.height
-                        ) {
+        timer.start();
 
-                            dvdVelocityY =
-                                -dvdVelocityY;
-                        }
+        Thread fleeThread = new Thread(() -> {
+            while (true) {
+                try {
+                    checkFlee();
+                    Thread.sleep(30);
+                } catch (Exception ignored) {
+                    break;
+                }
+            }
+        });
 
-                        setLocation(
-                            currentX,
-                            currentY
-                        );
+        fleeThread.setDaemon(true);
+        fleeThread.start();
+    }
 
-                    } else {
+    public void updateLayoutBounds(int w, int h) {
+        contentPaneContainer.setBounds(0, 0, w, h);
+        int contentH = h - 26;
+        mainPane.setBounds(0, 0, w, contentH);
+        boardPane.setBounds(0, 0, w, contentH);
+        if (mainResizeGrip != null) {
+            mainResizeGrip.setBounds(w - 16, h - 16, 16, 16);
+        }
+        mainPane.revalidate();
+        boardPane.revalidate();
+    }
 
-                        int dx =
-                            targetX -
-                            currentX;
+    private void toggleBit() {
+        bitMode = !bitMode;
+        int w = bitMode ? expW : winW;
+        int h = bitMode ? expH : winH;
 
-                        int dy =
-                            targetY -
-                            currentY;
+        setSize(w, h);
+        updateLayoutBounds(w, h);
 
-                        if (
-                            Math.abs(dx) > 1 ||
-                            Math.abs(dy) > 1
-                        ) {
+        mainPane.setVisible(!bitMode);
+        boardPane.setVisible(bitMode);
+        redraw();
+    }
 
-                            currentX +=
-                                dx /
-                                GLIDE_SPEED;
+    private void showMenu(MouseEvent e, int idx) {
+        JPopupMenu m = new JPopupMenu();
 
-                            currentY +=
-                                dy /
-                                GLIDE_SPEED;
+        JMenuItem audio = new JMenuItem("Assign WAV Sound");
+        audio.addActionListener(ev -> setSlotAudio(idx));
 
-                            setLocation(
-                                currentX,
-                                currentY
-                            );
-                        }
+        JMenuItem lbl = new JMenuItem("Set Custom Label");
+        lbl.addActionListener(ev -> setSlotLabel(idx));
+
+        m.add(audio);
+        m.add(lbl);
+        m.show(e.getComponent(), e.getX(), e.getY());
+    }
+
+    private void setSlotAudio(int i) {
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("WAV Audio Files (*.wav)", "wav"));
+
+        if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File f = fc.getSelectedFile();
+            sounds[i] = f.getAbsolutePath();
+            btns[i].setText(f.getName());
+        }
+    }
+
+    private void setSlotLabel(int i) {
+        String val = JOptionPane.showInputDialog(this, "Enter Button Label:", btns[i].getText());
+        if (val != null && !val.trim().isEmpty()) {
+            btns[i].setText(val);
+        }
+    }
+
+    private void checkFlee() {
+        if (stopped || !runaway || dvdMode || dragging || bitMode) return;
+
+        PointerInfo pi = MouseInfo.getPointerInfo();
+        if (pi == null) return;
+
+        Point m = pi.getLocation();
+        Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
+        Point loc = getLocation();
+
+        int cx = loc.x + (getWidth() / 2);
+        int cy = loc.y + (getHeight() / 2);
+
+        if (Math.hypot(m.x - cx, m.y - cy) < safeDist && !dragging) {
+            int mx = (m.x < cx) ? 260 : -260;
+            int my = (m.y < cy) ? 260 : -260;
+            int nx = loc.x + mx;
+            int ny = loc.y + my;
+
+            if (nx < 0 || nx + getWidth() > scr.width || ny < 25 || ny + getHeight() > scr.height) {
+                targetX = (scr.width / 2) - (getHeight() / 2) + rand.nextInt(200) - 100;
+                targetY = (scr.height / 2) - (getHeight() / 2) + rand.nextInt(200) - 100;
+            } else {
+                targetX = nx;
+                targetY = ny;
+            }
+
+            play(audioPath);
+        }
+    }
+
+    private void play(String path) {
+        if (stopped || path == null || path.isEmpty()) return;
+
+        new Thread(() -> {
+            try {
+                File f = new File(path);
+                if (!f.exists() || stopped) return;
+
+                AudioInputStream ais = AudioSystem.getAudioInputStream(f);
+                Clip clip = AudioSystem.getClip();
+                clip.open(ais);
+                clip.start();
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void applyTheme() {
+        Font f = new Font(fontFam, Font.PLAIN, fontSize);
+        Font tf = new Font(fontFam, Font.BOLD, fontSize + 2);
+
+        if (titleLbl != null) {
+            titleLbl.setFont(tf);
+            titleLbl.repaint();
+        }
+
+        if (descLbl != null) {
+            descLbl.setFont(f);
+            descLbl.repaint();
+        }
+
+        if (mainPane != null) {
+            mainPane.setBackground(bgColor);
+        }
+
+        if (toolbarcoolbarWindow != null) {
+            toolbarcoolbarWindow.applytoolbarcoolbarTheme();
+        }
+    }
+
+    private void redraw() {
+        mainPane.revalidate();
+        mainPane.repaint();
+        boardPane.revalidate();
+        boardPane.repaint();
+    }
+
+    private void stopDVD() {
+        dvdMode = false;
+        if (bgmClip != null) {
+            if (bgmClip.isRunning()) bgmClip.stop();
+            bgmClip.close();
+            bgmClip = null;
+        }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> new HarmonysWindowmaker().setVisible(true));
+    }
+
+    static class ResizeGrip extends JComponent {
+        private final JFrame targetFrame;
+        private Point pressPt;
+        private final int minW;
+        private final int minH;
+
+        public ResizeGrip(JFrame target, int minW, int minH) {
+            this.targetFrame = target;
+            this.minW = minW;
+            this.minH = minH;
+            setCursor(Cursor.getPredefinedCursor(Cursor.SE_RESIZE_CURSOR));
+
+            MouseAdapter ma = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    if (targetFrame instanceof HarmonysWindowmaker && ((HarmonysWindowmaker) targetFrame).stopped) return;
+                    pressPt = e.getLocationOnScreen();
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    pressPt = null;
+                }
+
+                @Override
+                public void mouseDragged(MouseEvent e) {
+                    if (pressPt == null) return;
+                    if (targetFrame instanceof HarmonysWindowmaker && ((HarmonysWindowmaker) targetFrame).stopped) return;
+                    
+                    Point cur = e.getLocationOnScreen();
+                    int dx = cur.x - pressPt.x;
+                    int dy = cur.y - pressPt.y;
+
+                    Rectangle bounds = targetFrame.getBounds();
+                    bounds.width = Math.max(minW, bounds.width + dx);
+                    bounds.height = Math.max(minH, bounds.height + dy);
+                    targetFrame.setBounds(bounds);
+
+                    pressPt = cur;
+
+                    if (targetFrame instanceof HarmonysWindowmaker) {
+                        ((HarmonysWindowmaker) targetFrame).updateLayoutBounds(bounds.width, bounds.height);
+                    } else if (targetFrame instanceof toolbarcoolbarWindow) {
+                        ((toolbarcoolbarWindow) targetFrame).updatetoolbarcoolbarLayout(bounds.width, bounds.height);
                     }
                 }
-            );
+            };
 
-        mainLoopTimer.start();
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
+        }
 
-       
-        Thread globalMouseThread =
-            new Thread(
-                () -> {
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setColor(new Color(128, 128, 128));
+            for (int i = 2; i < getWidth(); i += 4) {
+                for (int j = 2; j < getHeight(); j += 4) {
+                    if (i + j >= getWidth() - 2) {
+                        g2.fillRect(i, j, 1, 1);
+                    }
+                }
+            }
+            g2.setColor(Color.WHITE);
+            for (int i = 3; i < getWidth(); i += 4) {
+                for (int j = 3; j < getHeight(); j += 4) {
+                    if (i + j >= getWidth() - 1) {
+                        g2.fillRect(i, j, 1, 1);
+                    }
+                }
+            }
+            g2.dispose();
+        }
+    }
 
-                    while (true) {
+    static class CustomTitleBar extends JPanel {
+        private String title;
+        private final JFrame parentFrame;
+        private Point pressPt;
+        private JLabel titleLabel;
+
+        private Color gradStartColor = Color.BLACK;
+        private Color gradEndColor = new Color(150, 0, 75);
+
+        public CustomTitleBar(String title, JFrame parent, boolean includeControls) {
+            this.title = title;
+            this.parentFrame = parent;
+            setLayout(new BorderLayout());
+            setPreferredSize(new Dimension(0, 26));
+
+            titleLabel = new JLabel("  " + title);
+            titleLabel.setForeground(Color.WHITE);
+            titleLabel.setFont(new Font("MS Sans Serif", Font.BOLD, 11));
+            add(titleLabel, BorderLayout.CENTER);
+
+            if (includeControls) {
+                JPanel controlsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 2));
+                controlsPanel.setOpaque(false);
+
+                JButton minBtn = createWin98TitleButton("_");
+                JButton maxBtn = createWin98TitleButton("□");
+                JButton closeBtn = createWin98TitleButton("X");
+
+                minBtn.addActionListener(e -> parent.setState(JFrame.ICONIFIED));
+                maxBtn.addActionListener(e -> {
+                    if (parent instanceof HarmonysWindowmaker) {
+                        ((HarmonysWindowmaker) parent).toggleBit();
+                    }
+                });
+                closeBtn.addActionListener(e -> System.exit(0));
+
+                controlsPanel.add(minBtn);
+                controlsPanel.add(maxBtn);
+                controlsPanel.add(closeBtn);
+
+                add(controlsPanel, BorderLayout.EAST);
+            }
+
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    pressPt = e.getLocationOnScreen();
+                }
+            });
+
+            addMouseMotionListener(new MouseMotionAdapter() {
+                @Override
+                public void mouseDragged(MouseEvent e) {
+                    if (pressPt == null) return;
+                    Point cur = e.getLocationOnScreen();
+                    int nx = parent.getX() + (cur.x - pressPt.x);
+                    int ny = parent.getY() + (cur.y - pressPt.y);
+                    parent.setLocation(nx, ny);
+                    pressPt = cur;
+                    
+                    if (parent instanceof HarmonysWindowmaker) {
+                        ((HarmonysWindowmaker) parent).curX = ((HarmonysWindowmaker) parent).targetX = nx;
+                        ((HarmonysWindowmaker) parent).curY = ((HarmonysWindowmaker) parent).targetY = ny;
+                    }
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            GradientPaint gp = new GradientPaint(0, 0, gradStartColor, getWidth(), 0, gradEndColor);
+            g2.setPaint(gp);
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            g2.dispose();
+        }
+
+        public void setGradientColors(Color start, Color end) {
+            this.gradStartColor = start;
+            this.gradEndColor = end;
+            repaint();
+        }
+
+        private JButton createWin98TitleButton(String text) {
+            JButton b = new JButton(text) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    
+                    g2.setColor(new Color(192, 192, 192));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+
+                    g2.setColor(Color.WHITE);
+                    g2.drawLine(0, 0, getWidth() - 1, 0);
+                    g2.drawLine(0, 0, 0, getHeight() - 1);
+
+                    g2.setColor(new Color(128, 128, 128));
+                    g2.drawLine(1, getHeight() - 2, getWidth() - 2, getHeight() - 2);
+                    g2.drawLine(getWidth() - 2, 1, getWidth() - 2, getHeight() - 2);
+
+                    g2.setColor(Color.BLACK);
+                    g2.drawLine(0, getHeight() - 1, getWidth() - 1, getHeight() - 1);
+                    g2.drawLine(getWidth() - 1, 0, getWidth() - 1, getHeight() - 1);
+
+                    g2.setColor(Color.BLACK);
+                    g2.setFont(new Font("Monospaced", Font.BOLD, 10));
+                    FontMetrics fm = g2.getFontMetrics();
+                    int x = (getWidth() - fm.stringWidth(text)) / 2;
+                    int y = ((getHeight() - fm.getHeight()) / 2) + fm.getAscent() - 1;
+                    
+                    g2.drawString(text, x, y);
+                    g2.dispose();
+                }
+            };
+            b.setPreferredSize(new Dimension(16, 14));
+            b.setFont(new Font("Monospaced", Font.BOLD, 10));
+            b.setFocusable(false);
+            b.setOpaque(false);
+            b.setContentAreaFilled(false);
+            b.setBorderPainted(false);
+            b.setForeground(Color.BLACK);
+            return b;
+        }
+
+        public void setTitleText(String t) {
+            this.title = t;
+            if (titleLabel != null) {
+                titleLabel.setText("  " + t);
+            }
+            repaint();
+        }
+    }
+
+    class toolbarcoolbarWindow extends JFrame {
+
+        private final JLayeredPane toolbarcoolbarLayeredPane;
+        private final JPanel toolbarcoolbarContent;
+        private final JScrollPane toolbarcoolbarScroll;
+        private final JPanel toolbarcoolbarContainer;
+        private final ResizeGrip toolbarcoolbarResizeGrip;
+        private final CustomTitleBar toolbarcoolbarTitle;
+        
+        private final Color toolbarcoolbarBgColor = Color.BLACK;
+        private final Color toolbarcoolbarFgColor = Color.WHITE;
+        private final Font toolbarcoolbarFont = new Font("MS Sans Serif", Font.PLAIN, 11);
+
+        toolbarcoolbarWindow() {
+            setUndecorated(true);
+            setSize(620, 280);
+            setLocationRelativeTo(HarmonysWindowmaker.this);
+            setAlwaysOnTop(false);
+            setResizable(false);
+
+            toolbarcoolbarLayeredPane = new JLayeredPane();
+            toolbarcoolbarLayeredPane.setLayout(null);
+
+            toolbarcoolbarContainer = new JPanel(new BorderLayout());
+            toolbarcoolbarContainer.setBorder(BorderFactory.createLineBorder(new Color(128, 128, 128), 1));
+            toolbarcoolbarContainer.setBounds(0, 0, 620, 280);
+            
+            toolbarcoolbarTitle = new CustomTitleBar("Toolbar Java Test Function / COOLBAR", this, true);
+            toolbarcoolbarContainer.add(toolbarcoolbarTitle, BorderLayout.NORTH);
+
+            toolbarcoolbarContent = new JPanel(new GridLayout(4, 4, 4, 4));
+            toolbarcoolbarContent.setBackground(toolbarcoolbarBgColor);
+
+            toolbarcoolbarScroll = new JScrollPane(toolbarcoolbarContent);
+            toolbarcoolbarScroll.setBorder(BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.LOWERED));
+            toolbarcoolbarScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+            toolbarcoolbarScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER);
+
+            toolbarcoolbarContainer.add(toolbarcoolbarScroll, BorderLayout.CENTER);
+
+            toolbarcoolbarResizeGrip = new ResizeGrip(this, 200, 100);
+            
+            toolbarcoolbarLayeredPane.add(toolbarcoolbarContainer, JLayeredPane.DEFAULT_LAYER);
+            toolbarcoolbarLayeredPane.add(toolbarcoolbarResizeGrip, JLayeredPane.PALETTE_LAYER);
+            toolbarcoolbarResizeGrip.setBounds(620 - 16, 280 - 16, 16, 16);
+
+            setContentPane(toolbarcoolbarLayeredPane);
+
+            buildtoolbarcoolbar();
+            applytoolbarcoolbarTheme();
+        }
+
+        public void updatetoolbarcoolbarLayout(int w, int h) {
+            toolbarcoolbarContainer.setBounds(0, 0, w, h);
+            toolbarcoolbarResizeGrip.setBounds(w - 16, h - 16, 16, 16);
+            toolbarcoolbarContainer.revalidate();
+        }
+
+        private void buildtoolbarcoolbar() {
+            addtoolbarcoolbarButton("Bit Mode", e -> toggleBit());
+
+            addtoolbarcoolbarButton("Window Text", e -> {
+                String t = JOptionPane.showInputDialog(HarmonysWindowmaker.this, "Enter Title:", titleLbl.getText());
+                if (t != null && !t.trim().isEmpty()) {
+                    titleLbl.setText(t);
+                    if (titleBar != null) titleBar.setTitleText(t);
+                }
+                String d = JOptionPane.showInputDialog(HarmonysWindowmaker.this, "Enter Body:", descLbl.getText());
+                if (d != null && !d.trim().isEmpty()) {
+                    descLbl.setText("<html>" + d + "</html>");
+                }
+            });
+
+            addtoolbarcoolbarButton("Button Text", e -> {
+                String txt = JOptionPane.showInputDialog(HarmonysWindowmaker.this, "Enter Button Text:", okBtn.getText());
+                if (txt != null && !txt.trim().isEmpty()) {
+                    okBtn.setText(txt);
+                }
+            });
+
+            addtoolbarcoolbarButton("Toggle Btn", e -> {
+                btnVisible = !btnVisible;
+                okBtn.setVisible(btnVisible);
+                mainPane.revalidate();
+                mainPane.repaint();
+            });
+
+            addtoolbarcoolbarButton("Font", e -> {
+                String[] fonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+                String sel = (String) JOptionPane.showInputDialog(HarmonysWindowmaker.this, "Select Font:", "Font", JOptionPane.QUESTION_MESSAGE, null, fonts, fontFam);
+                if (sel != null) {
+                    fontFam = sel;
+                    applyTheme();
+                }
+            });
+
+            addtoolbarcoolbarButton("Color", e -> {
+                Color c = JColorChooser.showDialog(HarmonysWindowmaker.this, "Choose Background", bgColor);
+                if (c != null) {
+                    bgColor = c;
+                    applyTheme();
+                }
+            });
+
+            addtoolbarcoolbarButton("Titlebar Gradient", e -> {
+                Color start = JColorChooser.showDialog(HarmonysWindowmaker.this, "Choose Gradient Start Color (Left)", Color.BLACK);
+                if (start != null) {
+                    Color end = JColorChooser.showDialog(HarmonysWindowmaker.this, "Choose Gradient End Color (Right)", new Color(150, 0, 75));
+                    if (end != null) {
+                        if (titleBar != null) titleBar.setGradientColors(start, end);
+                        if (toolbarcoolbarTitle != null) toolbarcoolbarTitle.setGradientColors(start, end);
+                    }
+                }
+            });
+
+            addtoolbarcoolbarButton("Audio File", e -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter("WAV Audio Files (*.wav)", "wav"));
+
+                if (fc.showOpenDialog(HarmonysWindowmaker.this) == JFileChooser.APPROVE_OPTION) {
+                    audioPath = fc.getSelectedFile().getAbsolutePath();
+                }
+            });
+
+            addtoolbarcoolbarButton("DVD Mode", e -> {
+                JButton source = (JButton) e.getSource();
+
+                if (!dvdMode) {
+                    JFileChooser fc = new JFileChooser();
+                    fc.setFileFilter(new FileNameExtensionFilter("WAV Audio Files (*.wav)", "wav"));
+
+                    if (fc.showOpenDialog(HarmonysWindowmaker.this) == JFileChooser.APPROVE_OPTION) {
+                        audioPath = fc.getSelectedFile().getAbsolutePath();
+                        dvdMode = true;
+                        source.setText("DVD: ON");
 
                         try {
-
-                            evaluateFleeing();
-
-                            Thread.sleep(30);
-
-                        } catch (
-                            InterruptedException ex
-                        ) {
-
-                            break;
+                            File f = new File(audioPath);
+                            AudioInputStream ais = AudioSystem.getAudioInputStream(f);
+                            bgmClip = AudioSystem.getClip();
+                            bgmClip.open(ais);
+                            bgmClip.loop(Clip.LOOP_CONTINUOUSLY);
+                            bgmClip.start();
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
                         }
                     }
+                } else {
+                    dvdMode = false;
+                    stopDVD();
+                    source.setText("DVD Mode");
                 }
-            );
-
-        globalMouseThread.setDaemon(
-            true
-        );
-
-        globalMouseThread.start();
-    }
-
-
-    private void installDragListeners(
-        Component component,
-        MouseAdapter dragListener
-    ) {
-
-        if (
-            component instanceof JButton
-        ) {
-            return;
-        }
-
-        component.addMouseListener(
-            dragListener
-        );
-
-        component.addMouseMotionListener(
-            dragListener
-        );
-
-        if (
-            component instanceof Container
-        ) {
-
-            Component[] children =
-                (
-                    (Container)
-                        component
-                ).getComponents();
-
-            for (
-                Component child :
-                children
-            ) {
-
-                installDragListeners(
-                    child,
-                    dragListener
-                );
-            }
-        }
-    }
-
-    private void refreshPanels() {
-
-        sidebarPanel.revalidate();
-        sidebarPanel.repaint();
-
-        sidebarScrollPane.revalidate();
-        sidebarScrollPane.repaint();
-
-        sidebarContents.revalidate();
-        sidebarContents.repaint();
-
-        windowContentPanel.revalidate();
-        windowContentPanel.repaint();
-    }
-
-    private void setupSidebarButtons() {
-
-        Dimension btnSize =
-            new Dimension(
-                160,
-                20
-            );
-
-        JButton btnText =
-            createSidebarBtn(
-                "(Window Text)",
-                btnSize
-            );
-
-        btnText.addActionListener(
-            e -> openTextSettings()
-        );
-
-        JButton btnBtn =
-            createSidebarBtn(
-                "(Button Text)",
-                btnSize
-            );
-
-        btnBtn.addActionListener(
-            e -> openButtonSettings()
-        );
-
-        JButton toggleBtnVisibility =
-            createSidebarBtn(
-                "(Toggle Button)",
-                btnSize
-            );
-
-        toggleBtnVisibility.addActionListener(
-            e -> toggleMainButtonVisibility()
-        );
-
-        JButton btnFont =
-            createSidebarBtn(
-                "(Font)",
-                btnSize
-            );
-
-        btnFont.addActionListener(
-            e -> openFontSettings()
-        );
-
-        JButton btnColor =
-            createSidebarBtn(
-                "(Color)",
-                btnSize
-            );
-
-        btnColor.addActionListener(
-            e -> openColorSettings()
-        );
-
-        JButton btnTextColor =
-            createSidebarBtn(
-                "(Text Color)",
-                btnSize
-            );
-
-        btnTextColor.addActionListener(
-            e -> openTextColorPicker()
-        );
-
-        JButton btnBg =
-            createSidebarBtn(
-                "(BG)",
-                btnSize
-            );
-
-        btnBg.addActionListener(
-            e -> openBackgroundImagePicker()
-        );
-
-        JButton btnSprite =
-            createSidebarBtn(
-                "(Icon)",
-                btnSize
-            );
-
-        btnSprite.addActionListener(
-            e -> openImagePicker()
-        );
-
-        JButton btnSound =
-            createSidebarBtn(
-                "(Audio)",
-                btnSize
-            );
-
-        btnSound.addActionListener(
-            e -> openAudioPicker()
-        );
-
-        JButton btnDVD =
-            createSidebarBtn(
-                "(DVD Mode)",
-                btnSize
-            );
-
-        btnDVD.addActionListener(
-            e -> startDVDMode()
-        );
-
-        JButton btnStopDVD =
-            createSidebarBtn(
-                "(Stop DVD)",
-                btnSize
-            );
-
-        btnStopDVD.addActionListener(
-            e -> stopDVDMode()
-        );
-
-        /*
-         * RUNAWAY TOGGLE
-         */
-        JButton btnRunaway =
-            createSidebarBtn(
-                "(Runaway: ON)",
-                btnSize
-            );
-
-        btnRunaway.addActionListener(
-            e -> {
-
-                runawayEnabled =
-                    !runawayEnabled;
-
-                btnRunaway.setText(
-                    runawayEnabled
-                        ? "(Runaway: ON)"
-                        : "(Runaway: OFF)"
-                );
-            }
-        );
-
-        /*
-         * EMERGENCY STOP
-         */
-        JButton btnStopEverything =
-            createSidebarBtn(
-                "(STOP EVERYTHING NOW)",
-                btnSize
-            );
-
-        btnStopEverything.setBackground(
-            new Color(
-                80,
-                0,
-                0
-            )
-        );
-
-        btnStopEverything.addActionListener(
-            e -> stopEverythingNow()
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                5
-            )
-        );
-
-        sidebarContents.add(
-            btnText
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnBtn
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            toggleBtnVisibility
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnFont
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnColor
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnTextColor
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnBg
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnSprite
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnSound
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnDVD
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnStopDVD
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnRunaway
-        );
-
-        sidebarContents.add(
-            Box.createVerticalStrut(
-                2
-            )
-        );
-
-        sidebarContents.add(
-            btnStopEverything
-        );
-
-        toggleSidebarComponentsVisibility(
-            false
-        );
-    }
-
-    private JButton createSidebarBtn(
-        String label,
-        Dimension size
-    ) {
-
-        JButton btn =
-            new JButton(
-                label
-            );
-
-        btn.setMaximumSize(
-            size
-        );
-
-        btn.setPreferredSize(
-            size
-        );
-
-        btn.setMinimumSize(
-            size
-        );
-
-        btn.setAlignmentX(
-            Component.CENTER_ALIGNMENT
-        );
-
-        btn.setFont(
-            new Font(
-                "Courier New",
-                Font.BOLD,
-                11
-            )
-        );
-
-        btn.setFocusable(false);
-        btn.setOpaque(true);
-        btn.setBorderPainted(false);
-        btn.setContentAreaFilled(true);
-
-        btn.setBackground(
-            Color.BLACK
-        );
-
-        btn.setForeground(
-            Color.WHITE
-        );
-
-        return btn;
-    }
-
-    private void toggleSidebarComponentsVisibility(
-        boolean visible
-    ) {
-
-        for (
-            Component c :
-            sidebarContents.getComponents()
-        ) {
-
-            if (
-                c instanceof JButton
-            ) {
-
-                c.setVisible(
-                    visible
-                );
-            }
-        }
-
-        sidebarContents.revalidate();
-        sidebarContents.repaint();
-
-        sidebarScrollPane.setVisible(
-            true
-        );
-    }
-
-    private void toggleMainButtonVisibility() {
-
-        buttonVisible =
-            !buttonVisible;
-
-        okButton.setVisible(
-            buttonVisible
-        );
-
-        windowContentPanel.revalidate();
-        windowContentPanel.repaint();
-    }
-
-    public void startDVDMode() {
-
-        if (
-            !dvdMode &&
-            !everythingStopped
-        ) {
-
-            JFileChooser chooser =
-                new JFileChooser();
-
-            chooser.setDialogTitle(
-                "Select WAV Background Music Track for DVD Mode"
-            );
-
-            chooser.setFileFilter(
-                new javax.swing.filechooser.FileNameExtensionFilter(
-                    "WAV Audio Files (*.wav)",
-                    "wav"
-                )
-            );
-
-            if (
-                chooser.showOpenDialog(this) ==
-                JFileChooser.APPROVE_OPTION
-            ) {
-
-                currentAudioPath =
-                    chooser
-                        .getSelectedFile()
-                        .getAbsolutePath();
-
-                dvdMode = true;
-
-                playMusicLoop();
-            }
-        }
-    }
-
-    private void playMusicLoop() {
-
-        try {
-
-            File audioFile =
-                new File(
-                    currentAudioPath
-                );
-
-            if (
-                audioFile.exists()
-            ) {
-
-                AudioInputStream audioStream =
-                    AudioSystem.getAudioInputStream(
-                        audioFile
-                    );
-
-                bgmClip =
-                    AudioSystem.getClip();
-
-                bgmClip.open(
-                    audioStream
-                );
-
-                bgmClip.loop(
-                    Clip.LOOP_CONTINUOUSLY
-                );
-
-                bgmClip.start();
-            }
-
-        } catch (
-            Exception ex
-        ) {
-
-            ex.printStackTrace();
-        }
-    }
-
-    private void stopDVDMode() {
-
-        dvdMode = false;
-
-        if (
-            bgmClip != null
-        ) {
-
-            if (
-                bgmClip.isRunning()
-            ) {
-
-                bgmClip.stop();
-            }
-
-            bgmClip.close();
-            bgmClip = null;
-        }
-    }
-
-    /*
-     * STOP EVERYTHING NOW
-     *
-     * This permanently freezes the window until the
-     * application is restarted.
-     */
-    private void stopEverythingNow() {
-
-        everythingStopped = true;
-
-        dvdMode = false;
-
-        if (
-            mainLoopTimer != null
-        ) {
-
-            mainLoopTimer.stop();
-        }
-
-        if (
-            bgmClip != null
-        ) {
-
-            if (
-                bgmClip.isRunning()
-            ) {
-
-                bgmClip.stop();
-            }
-
-            bgmClip.close();
-            bgmClip = null;
-        }
-
-        isSoundPlaying = false;
-
-        currentX = getX();
-        currentY = getY();
-
-        targetX = currentX;
-        targetY = currentY;
-
-        dragStart = null;
-    }
-
-    private void applyStyles() {
-
-        windowContentPanel.setBackground(
-            bgColor
-        );
-
-        titleLabel.setForeground(
-            titleColor
-        );
-
-        descLabel.setForeground(
-            bodyColor
-        );
-
-        okButton.setForeground(
-            titleColor
-        );
-
-        titleLabel.setFont(
-            new Font(
-                fontFam,
-                Font.BOLD,
-                baseFontSize + 4
-            )
-        );
-
-        descLabel.setFont(
-            new Font(
-                fontFam,
-                Font.PLAIN,
-                baseFontSize + 1
-            )
-        );
-
-        okButton.setFont(
-            new Font(
-                fontFam,
-                Font.BOLD,
-                baseFontSize
-            )
-        );
-    }
-
-    private void openTextSettings() {
-
-        String newTitle =
-            JOptionPane.showInputDialog(
-                this,
-                "Title Text:",
-                titleLabel.getText()
-            );
-
-        if (
-            newTitle != null
-        ) {
-
-            titleLabel.setText(
-                newTitle
-            );
-        }
-
-        String newDesc =
-            JOptionPane.showInputDialog(
-                this,
-                "Body Text:",
-                descLabel
-                    .getText()
-                    .replace(
-                        "<html>",
-                        ""
-                    )
-                    .replace(
-                        "</html>",
-                        ""
-                    )
-            );
-
-        if (
-            newDesc != null
-        ) {
-
-            descLabel.setText(
-                "<html>" +
-                newDesc.replaceAll(
-                    "\n",
-                    "<br>"
-                ) +
-                "</html>"
-            );
-        }
-    }
-
-    private void openButtonSettings() {
-
-        String btnText =
-            JOptionPane.showInputDialog(
-                this,
-                "Button Text:",
-                okButton.getText()
-            );
-
-        if (
-            btnText != null
-        ) {
-
-            okButton.setText(
-                btnText
-            );
-        }
-
-        int enabledChoice =
-            JOptionPane.showConfirmDialog(
-                this,
-                "Enable button?",
-                "Button Config",
-                JOptionPane.YES_NO_OPTION
-            );
-
-        okButton.setEnabled(
-            enabledChoice ==
-            JOptionPane.YES_OPTION
-        );
-    }
-
-    private void openFontSettings() {
-
-        String newFam =
-            JOptionPane.showInputDialog(
-                this,
-                "Font Family Name:",
-                fontFam
-            );
-
-        if (
-            newFam != null &&
-            !newFam.trim().isEmpty()
-        ) {
-
-            fontFam =
-                newFam.trim();
-        }
-
-        String sizeStr =
-            JOptionPane.showInputDialog(
-                this,
-                "Base Font Size:",
-                String.valueOf(
-                    baseFontSize
-                )
-            );
-
-        try {
-
-            if (
-                sizeStr != null
-            ) {
-
-                baseFontSize =
-                    Integer.parseInt(
-                        sizeStr.trim()
-                    );
-            }
-
-        } catch (
-            Exception ignored
-        ) {}
-
-        applyStyles();
-    }
-
-    private void openColorSettings() {
-
-        Color newColor =
-            JColorChooser.showDialog(
-                this,
-                "Background Tint",
-                bgColor
-            );
-
-        if (
-            newColor != null
-        ) {
-
-            backgroundImage = null;
-
-            bgColor =
-                newColor;
-
-            applyStyles();
-
-            windowContentPanel.repaint();
-        }
-    }
-
-    private void openTextColorPicker() {
-
-        Color newColor =
-            JColorChooser.showDialog(
-                this,
-                "Text Color",
-                titleColor
-            );
-
-        if (
-            newColor != null
-        ) {
-
-            titleColor =
-                newColor;
-
-            bodyColor =
-                newColor;
-
-            applyStyles();
-
-            windowContentPanel.repaint();
-        }
-    }
-
-    private void openBackgroundImagePicker() {
-
-        JFileChooser fileChooser =
-            new JFileChooser();
-
-        if (
-            fileChooser.showOpenDialog(this) ==
-            JFileChooser.APPROVE_OPTION
-        ) {
-
-            try {
-
-                Image img =
-                    ImageIO.read(
-                        fileChooser
-                            .getSelectedFile()
-                    );
-
-                if (
-                    img != null
-                ) {
-
-                    backgroundImage =
-                        img;
-
-                    windowContentPanel.repaint();
+            });
+
+            addtoolbarcoolbarButton("Runaway", e -> {
+                runaway = !runaway;
+                JButton source = (JButton) e.getSource();
+                source.setText(runaway ? "Runaway: ON" : "Runaway: OFF");
+            });
+
+            addtoolbarcoolbarButton("STOP", e -> {
+                stopped = true;
+                if (timer != null) timer.stop();
+                stopDVD();
+
+                if (toolbarcoolbarWindow != null) {
+                    toolbarcoolbarWindow.dispose();
                 }
+                dispose();
+            });
 
-            } catch (
-                Exception ignored
-            ) {}
+            addtoolbarcoolbarButton("Exit", e -> System.exit(0));
         }
-    }
 
-    private void openImagePicker() {
+        private JButton addtoolbarcoolbarButton(String text, java.awt.event.ActionListener listener) {
+            JButton b = new JButton(text) {
+                @Override
+                protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setColor(Color.BLACK);
+                    g2.fillRect(0, 0, getWidth(), getHeight());
 
-        JFileChooser fileChooser =
-            new JFileChooser();
+                    g2.setColor(new Color(120, 120, 120));
+                    g2.drawLine(0, 0, getWidth() - 1, 0);
+                    g2.drawLine(0, 0, 0, getHeight() - 1);
 
-        if (
-            fileChooser.showOpenDialog(this) ==
-            JFileChooser.APPROVE_OPTION
-        ) {
+                    g2.setColor(Color.DARK_GRAY);
+                    g2.drawLine(1, getHeight() - 1, getWidth() - 1, getHeight() - 1);
+                    g2.drawLine(getWidth() - 1, 1, getWidth() - 1, getHeight() - 1);
 
-            try {
-
-                Image rawImg =
-                    ImageIO.read(
-                        fileChooser
-                            .getSelectedFile()
-                    );
-
-                if (
-                    rawImg != null
-                ) {
-
-                    iconLabel.setIcon(
-                        new ImageIcon(
-                            rawImg.getScaledInstance(
-                                80,
-                                80,
-                                Image.SCALE_SMOOTH
-                            )
-                        )
-                    );
+                    super.paintComponent(g2);
+                    g2.dispose();
                 }
+            };
 
-            } catch (
-                Exception ignored
-            ) {}
-        }
-    }
+            b.setPreferredSize(new Dimension(130, 30));
+            b.setFont(toolbarcoolbarFont);
+            b.setFocusable(false);
+            b.setOpaque(false);
+            b.setContentAreaFilled(false);
+            b.setBorderPainted(false);
+            b.setForeground(toolbarcoolbarFgColor);
+            b.addActionListener(listener);
 
-    private void openAudioPicker() {
-
-        JFileChooser fileChooser =
-            new JFileChooser();
-
-        if (
-            fileChooser.showOpenDialog(this) ==
-            JFileChooser.APPROVE_OPTION
-        ) {
-
-            currentAudioPath =
-                fileChooser
-                    .getSelectedFile()
-                    .getAbsolutePath();
-        }
-    }
-
-    private void playSound(
-        String path
-    ) {
-
-        if (
-            everythingStopped ||
-            isSoundPlaying ||
-            path.isEmpty()
-        ) {
-
-            return;
+            toolbarcoolbarContent.add(b);
+            return b;
         }
 
-        new Thread(
-            () -> {
-
-                try {
-
-                    File soundFile =
-                        new File(
-                            path
-                        );
-
-                    if (
-                        !soundFile.exists() ||
-                        everythingStopped
-                    ) {
-
-                        return;
-                    }
-
-                    isSoundPlaying =
-                        true;
-
-                    AudioInputStream audioStream =
-                        AudioSystem.getAudioInputStream(
-                            soundFile
-                        );
-
-                    Clip clip =
-                        AudioSystem.getClip();
-
-                    clip.open(
-                        audioStream
-                    );
-
-                    if (
-                        everythingStopped
-                    ) {
-
-                        clip.close();
-
-                        isSoundPlaying =
-                            false;
-
-                        return;
-                    }
-
-                    clip.start();
-
-                    clip.addLineListener(
-                        event -> {
-
-                            if (
-                                event.getType() ==
-                                LineEvent.Type.STOP
-                            ) {
-
-                                clip.close();
-
-                                isSoundPlaying =
-                                    false;
-                            }
-                        }
-                    );
-
-                } catch (
-                    Exception ex
-                ) {
-
-                    isSoundPlaying =
-                        false;
-                }
-
+        private void applytoolbarcoolbarTheme() {
+            if (toolbarcoolbarContent != null) {
+                toolbarcoolbarContent.setBackground(toolbarcoolbarBgColor);
+                toolbarcoolbarContent.revalidate();
+                toolbarcoolbarContent.repaint();
             }
-        ).start();
-    }
-
-    private void evaluateFleeing() {
-
-        if (
-            everythingStopped
-        ) {
-
-            return;
         }
-
-        if (
-            !runawayEnabled
-        ) {
-
-            return;
-        }
-
-        if (
-            dvdMode
-        ) {
-
-            return;
-        }
-
-        if (
-            sidebarOpen
-        ) {
-
-            return;
-        }
-
-        PointerInfo pointerInfo =
-            MouseInfo.getPointerInfo();
-
-        if (
-            pointerInfo == null
-        ) {
-
-            return;
-        }
-
-        Point mouseAbsolute =
-            pointerInfo.getLocation();
-
-        Dimension screenSize =
-            Toolkit
-                .getDefaultToolkit()
-                .getScreenSize();
-
-        int windowCenterX =
-            currentX +
-            (getWidth() / 2);
-
-        int windowCenterY =
-            currentY +
-            (getHeight() / 2);
-
-        double distance =
-            Math.hypot(
-                mouseAbsolute.x -
-                    windowCenterX,
-                mouseAbsolute.y -
-                    windowCenterY
-            );
-
-        if (
-            distance < safeDistance
-        ) {
-
-            int moveX =
-                (
-                    mouseAbsolute.x <
-                    windowCenterX
-                )
-                    ? 260
-                    : -260;
-
-            int moveY =
-                (
-                    mouseAbsolute.y <
-                    windowCenterY
-                )
-                    ? 260
-                    : -260;
-
-            int nextTargetX =
-                currentX +
-                moveX;
-
-            int nextTargetY =
-                currentY +
-                moveY;
-
-            if (
-                nextTargetX < 0 ||
-                nextTargetX + getWidth() >
-                    screenSize.width ||
-                nextTargetY < 25 ||
-                nextTargetY + getHeight() >
-                    screenSize.height
-            ) {
-
-                targetX =
-                    (
-                        screenSize.width /
-                        2
-                    ) -
-                    (
-                        getWidth() /
-                        2
-                    ) +
-                    random.nextInt(
-                        200
-                    ) -
-                    100;
-
-                targetY =
-                    (
-                        screenSize.height /
-                        2
-                    ) -
-                    (
-                        getHeight() /
-                        2
-                    ) +
-                    random.nextInt(
-                        200
-                    ) -
-                    100;
-
-            } else {
-
-                targetX =
-                    nextTargetX;
-
-                targetY =
-                    nextTargetY;
-            }
-
-            playSound(
-                currentAudioPath
-            );
-        }
-    }
-
-    public static void main(
-        String[] args
-    ) {
-
-        SwingUtilities.invokeLater(
-            () ->
-                new HarmonysWindowmaker()
-        );
     }
 }
